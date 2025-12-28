@@ -1,6 +1,6 @@
 #!/bin/bash
 
-__version__=0.8.17
+__version__=0.9.11
 
 # Mensaje redes disponibles
 fMensajeRedes() {
@@ -849,8 +849,129 @@ EOF
                 systemctl enable vsftpd
             fi
 
+            # Configuración Zabbix
+            echo "Descargando Zabbix 6.0-4..."
+            wget https://repo.zabbix.com/zabbix/6.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_6.0-4+ubuntu22.04_all.deb
+            
+            echo "Instalando repositorio Zabbix..."
+            dpkg -i zabbix-release_6.0-4+ubuntu22.04_all.deb && apt update
+            
+            echo "Instalando requisitos..."
+            apt install zabbix-server-mysql zabbix-agent zabbix-apache-conf zabbix-sql-scripts zabbix-frontend-php libapache2-mod-php -y
+        
+            echo "Configurando base de datos..."
+            mysql -uroot -e "drop database zabbix;"
+            mysql -uroot -e "create database zabbix character set utf8mb4 collate utf8mb4_bin;"
+            mysql -uroot -e "create user 'zabbix@localhost' identified by 'zabbix';"
+            mysql -uroot -e "grant all privileges on zabbix.* to 'zabbix@localhost';"
+            mysql -uroot -e "set global log_bin_trust_function_creators = 1;"
+
+            echo "Importando estructura base de datos..."
+            zcat /usr/share/zabbix-sql-scripts/mysql/server.sql.gz | mysql --default-character-set=utf8mb4 -uzabbix -pzabbix zabbix
+            
+            echo "Deshabilitando log_bin_trust_function_creators..."
+            mysql -uroot -e "set global log_bin_trust_function_creators = 0;"
+
+            echo "Configurando archivo servicio /etc/zabbix/zabbix_server.conf"
+            cat >> /etc/zabbix/zabbix_server.conf <<- EOF
+DBPassword=zabbix
+EOF
+
+            echo "Configurando archivo php /etc/php/8.1/fpm/php.ini"
+            cat >> /etc/php/8.1/fpm/php.ini <<- EOF
+max_input_time = 300
+post_max_size = 16M
+EOF
+            echo "Habilitando daemon Zabbix..."
+            sudo systemctl enable zabbix-server zabbix-agent
+            # ---------------------------------------------------------
+
+            # Configurar Rsync
+            echo "Instalando Rsync..."
+            apt install rsync
+
+            echo "Creando directorio Copias de seguridad..."
+            mkdir /mnt/Backups-rsync
+            mount /dev/sdb /mnt/Backups-rsync/ # Montar unidad
+
+            mkdir /mnt/Backups-rsync/ser1
+            mkdir /mnt/Backups-rsync/dhcp
+            mkdir /mnt/Backups-rsync/ssh
+            mkdir /mnt/Backups-rsync/iptables
+            mkdir /mnt/Backups-rsync/bind9
+            mkdir /mnt/Backups-rsync/apache
+            mkdir /mnt/Backups-rsync/vsftpd
+            mkdir /mnt/Backups-rsync/zabbix
+
+            echo "Creando archivo ejecutable backup-rsync.sh..."
+            cat > ./backup-rsync.sh <<- EOF
+#!/bin/bash
+
+# Configuración
+ser1="/mnt/Backups-rsync/ser1"
+dhcp="/mnt/Backups-rsync/dhcp"
+ssh="/mnt/Backups-rsync/ssh"
+iptables="/mnt/Backups-rsync/iptables"
+bind9="/mnt/Backups-rsync/bind9"
+apache="/mnt/Backups-rsync/apache"
+vsftpd="/mnt/Backups-rsync/vsftpd"
+zabbix="/mnt/Backups-rsync/zabbix"
+
+# Ser1
+echo Realizando copia archivos del servidor
+rsync -az /etc/hosts \$ser1
+echo OK
+
+# DHCP
+echo Realizando copia archivos del DHCP
+rsync -az /etc/default/isc-dhcp-server \$dhcp
+rsync -az /etc/dhcp/dhcpd.conf \$dhcp
+echo OK
+
+# SSH
+echo Realizando copia archivos del SSH
+rsync -az /etc/ssh/sshd_config \$ssh
+echo OK
+
+# Iptables
+echo Realizando copia archivos de Iptables
+rsync -az /etc/sysctl.conf \$iptables
+iptables-save > \$iptables
+echo OK
+
+# DNS
+echo Realizando copia archivos de Bind9
+rsync -az --relative /etc/resolv.conf \$bind9
+rsync -az --relative /etc/bind \$bind9
+rsync -az --relative /var/lib/bind \$bind9
+echo OK
+
+# Apache
+echo Realizando copia archivos de Apache
+rsync -az /var/www/html/pro05.es \$apache
+rsync -az /etc/apache2 \$apache
+echo OK
+
+# FTP
+echo Realizando copia archivos de Vsftpd
+rsync -az /etc/vsftpd.conf \$ftp
+echo OK
+
+# Zabbix
+echo Realizando copia archivos de Zabbix
+rsync -az /etc/zabbix \$zabbix
+rsync -az /etc/mysql \$zabbix
+echo OK
+EOF
+
+            echo "Permitir ejecución"
+            chmod +x ./backup-rsync.sh
+
+            echo "Actualizando crontab..."
+            sh -c '(crontab -u usuario -l 2>/dev/null; echo "0 2 * * * /home/usuario/backup-rsync.sh") | crontab -u usuario -'
+
             # Final, reiniciando todos los servicios
-            systemctl restart isc-dhcp-server sshd bind9 apache2 vsftpd 2>/dev/null
+            systemctl restart isc-dhcp-server sshd bind9 apache2 vsftpd zabbix-server zabbix-agent 2>/dev/null
             read -p "Terminado (Pulse cualquier tecla para continuar)" null
             ;;
 
