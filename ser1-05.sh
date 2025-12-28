@@ -1,6 +1,6 @@
 #!/bin/bash
 
-__version__=0.8.12
+__version__=0.8.17
 
 # Mensaje redes disponibles
 fMensajeRedes() {
@@ -555,7 +555,7 @@ subnet $vDireccion netmask $vMascaraCompleta {
 EOF
                 # Habilitar y reiniciar servicio
                 echo "Habilitando servicio y reinicio del daemon"
-                systemctl enable isc-dhcp-server && systemctl restart isc-dhcp-server
+                systemctl enable isc-dhcp-server
             fi
             # -------------------------------------------------------------
 
@@ -578,7 +578,7 @@ PermitRootLogin yes
 Banner /etc/mensaje.net
 EOF
             echo "Habilitando y reiniciando daemon openssh-server..."
-            systemctl enable openssh-server && systemctl restart openssh-server
+            systemctl enable openssh-server
             # -------------------------------------------------------------
 
             # Configuración NAT (Iptables)
@@ -657,17 +657,19 @@ EOF
                 cat > /var/lib/bind/$dominio.hosts <<- EOF
 \$TTL 7200
 
-$dominio.   IN    SOA        $dominio.    admin.$dominio. (
-                        20251212
-                        1000
-                        1000
-                        1000
-                        1000 )
+$dominio.       IN      SOA             $dominio.       admin.$dominio. (
+                                                20251213
+                                                1000
+                                                1000
+                                                1000
+                                                1000 )
 
-$dominio.   IN      NS        $servidor.$dominio.
-$servidor.$dominio.     IN      A    $servidorIP
-www         IN      A    $servidorIP
-ftp         IN      A   $servidorIP
+$dominio.       IN      NS              $servidor.$dominio.
+
+$dominio.       IN      A       $servidorIP
+$servidor            IN      A       $servidorIP     
+www             IN      A       $servidorIP
+ftp             IN      A       $servidorIP
 EOF
 
                 ## Configurando /var/lib/bind/vOcteto1.vOcteto2.vOcteto3-inversa.rev
@@ -685,6 +687,7 @@ $vOcteto3.$vOcteto2.$vOcteto1.in-addr.arpa.    IN    SOA        $servidor.$domin
 $vOcteto3.$vOcteto2.$vOcteto1.in-addr.arpa.        IN    NS    $servidor.$dominio.
 $(($vOcteto4 + 1)).$vOcteto3.$vOcteto2.$vOcteto1.in-addr.arpa.    IN    PTR    $servidor.$dominio.
 EOF
+
                 ## Configurando /var/lib/bind/bloqueados.zone
                 echo "Configurando /var/lib/bind/bloqueados.zone..."
                 cat > /var/lib/bind/bloqueados.zone <<- EOF
@@ -703,7 +706,7 @@ EOF
 
                 ## Habilitar y reiniciar daemon bind9
                 echo "Habilitando y reiniciando daemon bind9"
-                systemctl enable bind9 && systemctl restart bind9
+                systemctl enable bind9
             fi
             # -------------------------------------------------------------
 
@@ -774,7 +777,7 @@ Hola
 EOF
                 ## Creación archivos contraseñas
                 echo "Creando archivo /etc/apache2/.htpasswd_descargas..."
-                htpasswd -cb /etc/apache2/.htpasswd_descargas descargas 'ftpproyecto'
+                htpasswd -cb /etc/apache2/.htpasswd_descargas descargas 'descargas'
 
                 echo "Creando archivo /etc/apache2/.htpasswd_ftp..."
                 htpasswd -cb /etc/apache2/.htpasswd_ftp ftpproyecto 'ftpproyecto'
@@ -789,7 +792,7 @@ EOF
 
                 ## Recargar apache
                 echo "Recargando daemon apache2..."
-                systemctl enable apache2 && systemctl restart apache2 && systemctl reload bind9
+                systemctl enable apache2
             fi
 
             # Configuración servicio FTP
@@ -843,10 +846,11 @@ EOF
 
                 ## Habilitar y reiniciar servicio vsftpd
                 echo "Habilitando y reiniciando daemon vsftpd..."
-                systemctl enable vsftpd && systemctl restart vsftpd && systemctl reload bind9
+                systemctl enable vsftpd
             fi
 
-            systemctl restart isc-dhcp-server sshd bind9 apache2 vsftpd
+            # Final, reiniciando todos los servicios
+            systemctl restart isc-dhcp-server sshd bind9 apache2 vsftpd 2>/dev/null
             read -p "Terminado (Pulse cualquier tecla para continuar)" null
             ;;
 
